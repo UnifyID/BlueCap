@@ -55,7 +55,7 @@ public class RegionManager : LocationManager {
         return self.regionMonitorStatus[identifier] ?? false
     }
 
-    public func startMonitoring(forRegion region: Region, authorization: CLAuthorizationStatus = .authorizedWhenInUse, capacity: Int = Int.max, context: ExecutionContext = QueueContext.main) -> FutureStream<RegionState> {
+    public func startMonitoring(forRegion region: Region, authorization: CLAuthorizationStatus = .authorized, capacity: Int = Int.max, context: ExecutionContext = QueueContext.main) -> FutureStream<RegionState> {
         let authorizationFuture = self.authorize(authorization, context: context)
         authorizationFuture.onFailure { _ in self.updateIsMonitoring(false) }
         return authorizationFuture.flatMap(capacity: capacity, context: context) {
