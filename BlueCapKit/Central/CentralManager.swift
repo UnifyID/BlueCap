@@ -240,16 +240,6 @@ public class CentralManager : NSObject, CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         didFailToConnectPeripheral(peripheral, error: error)
     }
-
-    public func centralManager(_ central: CBCentralManager, willRestoreState dict: [String : Any]) {
-        var injectablePeripherals: [CBPeripheralInjectable]?
-        if let cbPeripherals: [CBPeripheral] = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] {
-            injectablePeripherals = cbPeripherals.map { $0 as CBPeripheralInjectable }
-        }
-        let scannedServices = dict[CBCentralManagerRestoredStateScanServicesKey] as? [CBUUID]
-        let options = dict[CBCentralManagerRestoredStateScanOptionsKey] as? [String: AnyObject]
-        willRestoreState(injectablePeripherals, scannedServices: scannedServices, options: options)
-    }
     
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
         didUpdateState(central)

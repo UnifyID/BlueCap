@@ -59,8 +59,6 @@ public protocol CLLocationManagerInjectable {
     // MARK: Beacons
     static func isRangingAvailable() -> Bool
     var rangedRegions: Set<CLRegion> { get }
-    func startRangingBeaconsInRegion(_ region: CLBeaconRegion)
-    func stopRangingBeaconsInRegion(_ region: CLBeaconRegion)
     func requestStateForRegion(_ region: CLRegion)
 }
 
@@ -103,20 +101,6 @@ public class LocationManager : NSObject, CLLocationManagerDelegate {
         }
     }
 
-    public var allowsBackgroundLocationUpdates: Bool {
-        get {
-            if let locationManager = self.clLocationManager as? CLLocationManager {
-                return locationManager.allowsBackgroundLocationUpdates
-            } else {
-                return false
-            }
-        }
-        set {
-            if let locationManager = self.clLocationManager as? CLLocationManager {
-                locationManager.allowsBackgroundLocationUpdates = newValue
-            }
-        }
-    }
 
     public var activityType: CLActivityType {
         get {

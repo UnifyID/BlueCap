@@ -120,43 +120,6 @@ public class PeripheralManager: NSObject, CBPeripheralManagerDelegate {
         }
     }
     
-    public func startAdvertising(_ region: BeaconRegion) -> Future<Void> {
-        return self.peripheralQueue.sync {
-            if let afterBeaconAdvertisingStartedPromise = self.afterBeaconAdvertisingStartedPromise, !afterBeaconAdvertisingStartedPromise.completed {
-                return afterBeaconAdvertisingStartedPromise.future
-            }
-            self._name = region.identifier
-            self.afterBeaconAdvertisingStartedPromise = Promise<Void>()
-            if !self.isAdvertising {
-                self.cbPeripheralManager.startAdvertising(region.peripheralDataWithMeasuredPower(nil))
-                return self.afterBeaconAdvertisingStartedPromise!.future
-            } else {
-                return Future(error: PeripheralManagerError.isAdvertising)
-            }
-        }
-    }
-    
-    public func startAdvertising(region: BeaconRegion, name: String, uuids: [CBUUID]? = nil) -> Future<Void> {
-        return self.peripheralQueue.sync {
-            self._name = name
-            self.afterAdvertisingStartedPromise = Promise<Void>()
-            if !self.isAdvertising {
-                let beaconAdvertisementData = region.peripheralDataWithMeasuredPower(nil)
-                var advertisementData : [String:AnyObject] = [CBAdvertisementDataLocalNameKey:name as AnyObject]
-                if let uuids = uuids {
-                    advertisementData[CBAdvertisementDataServiceUUIDsKey] = uuids as AnyObject?
-                }
-                for (key, value) in beaconAdvertisementData {
-                    advertisementData[key] = value
-                }
-                self.cbPeripheralManager.startAdvertising(advertisementData)
-            } else {
-                self.afterAdvertisingStartedPromise?.failure(PeripheralManagerError.isAdvertising)
-            }
-            return self.afterAdvertisingStartedPromise!.future
-        }
-    }
-    
     public func stopAdvertising() {
         self.peripheralQueue.sync {
             self._name = nil
@@ -241,14 +204,6 @@ public class PeripheralManager: NSObject, CBPeripheralManagerDelegate {
         self.didUpdateState(peripheralManager)
     }
     
-    public func peripheralManager(_: CBPeripheralManager, willRestoreState dict: [String: Any]) {
-        var injectableServices: [CBMutableServiceInjectable]?
-        if let cbServices = dict[CBPeripheralManagerRestoredStateServicesKey] as? [CBMutableService] {
-            injectableServices = cbServices.map { $0 as CBMutableServiceInjectable }
-        }
-        let advertisements =  dict[CBPeripheralManagerRestoredStateAdvertisementDataKey] as? [String: AnyObject]
-        self.willRestoreState(injectableServices, advertisements: advertisements)
-    }
     
     public func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
         self.didStartAdvertising(error)
