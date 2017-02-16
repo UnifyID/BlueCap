@@ -364,8 +364,11 @@ public class Peripheral: NSObject, CBPeripheralDelegate {
         Logger.debug()
     }
 
-    public func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber, error: Error?) {
-        didReadRSSI(RSSI, error:error)
+    // OSX specific delegate, iOS and TVos use: #peripheral(_peripheral:, didReadRSSI RSSI:, error:)
+    public func peripheralDidUpdateRSSI(_ peripheral: CBPeripheral, error: Error?) {
+        if let currentRSSI = peripheral.rssi {
+            didReadRSSI(currentRSSI, error: error)
+        }
     }
 
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
