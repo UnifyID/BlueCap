@@ -12,16 +12,16 @@ import CoreBluetooth
 
 class PeripheralServiceCharacteristicEditValueViewController : UIViewController, UITextFieldDelegate {
 
-    fileprivate static var BCPeripheralStateKVOContext = UInt8()
-
     @IBOutlet var valueTextField: UITextField!
-    weak var characteristic: Characteristic!
-    weak var connectionFuture: FutureStream<(peripheral: Peripheral, connectionEvent: ConnectionEvent)>!
 
-    var peripheralViewController: PeripheralViewController?
+    weak var characteristic: Characteristic?
+    weak var peripheral: Peripheral?
+    var peripheralDiscoveryFuture: FutureStream<[Void]>?
+
+    let cancelToken = CancelToken()
+    let progressView = ProgressView()
+
     var valueName: String?
-    
-    var progressView = ProgressView()
     
     required init?(coder aDecoder: NSCoder) {
         super.init(coder: aDecoder)
@@ -29,99 +29,106 @@ class PeripheralServiceCharacteristicEditValueViewController : UIViewController,
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        if let valueName = self.valueName {
-            self.navigationItem.title = valueName
-            if let value = self.characteristic.stringValue?[valueName] {
-                self.valueTextField.text = value
-            }
-        }
-        self.navigationItem.backBarButtonItem = UIBarButtonItem(title: "", style: .plain, target: nil, action: nil)
+        navigationItem.title = valueName
+        navigationItem.backBarButtonItem = UIBarButtonItem(title: "", style: .plain, target: nil, action: nil)
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        let options = NSKeyValueObservingOptions([.new])
-        // TODO: Use Future Callback
-        self.characteristic?.service?.peripheral?.addObserver(self, forKeyPath: "state", options: options, context: &PeripheralServiceCharacteristicEditValueViewController.BCPeripheralStateKVOContext)
         NotificationCenter.default.addObserver(self, selector: #selector(PeripheralServiceCharacteristicEditValueViewController.didEnterBackground), name: NSNotification.Name.UIApplicationDidEnterBackground, object: nil)
-    }
-    
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        self.characteristic?.service?.peripheral?.removeObserver(self, forKeyPath: "state", context: &PeripheralServiceCharacteristicEditValueViewController.BCPeripheralStateKVOContext)
-        NotificationCenter.default.removeObserver(self)
-    }
-    
-    func peripheralDisconnected() {
-        Logger.debug()
-        if let peripheralViewController = self.peripheralViewController {
-            if peripheralViewController.peripheralConnected {
-                self.present(UIAlertController.alertWithMessage("Peripheral disconnected") { action in
-                        peripheralViewController.peripheralConnected = false
-                        _ = self.navigationController?.popViewController(animated: true)
-                    }, animated:true, completion:nil)
+        guard  let peripheralDiscoveryFuture = peripheralDiscoveryFuture,
+               let peripheral = peripheral,
+               let characteristic = characteristic,
+               peripheral.state == .connected
+        else {
+            _ = navigationController?.popViewController(animated: true)
+            return
+        }
+
+        peripheralDiscoveryFuture.onFailure(cancelToken: cancelToken) { [weak self] error in
+            guard let strongSelf = self else {
+                return
+            }
+            strongSelf.progressView.remove().onSuccess {
+                strongSelf.presentAlertIngoringForcedDisconnect(title: "Connection Error", error: error)
+            }
+        }
+        
+        guard characteristic.canRead else {
+            return
+        }
+        
+        progressView.show()
+        let readFuture = characteristic.read(timeout: Double(ConfigStore.getCharacteristicReadWriteTimeout()))
+        readFuture.onSuccess { [weak self] _ in
+            _ = self?.progressView.remove()
+            guard let valueName = self?.valueName else {
+                return
+            }
+            self?.valueTextField.text = characteristic.stringValue?[valueName]
+        }
+        readFuture.onFailure { [weak self] error in
+            self?.progressView.remove().onSuccess {
+                self?.present(UIAlertController.alert(title: "Charcteristic read error", error: error) { _ in
+                    _ = self?.navigationController?.popViewController(animated: true)
+                    return
+                }, animated:true, completion:nil)
             }
         }
     }
 
-    func didEnterBackground() {
-        _ = self.navigationController?.popToRootViewController(animated: false)
-        Logger.debug()
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        NotificationCenter.default.removeObserver(self)
+        _ = peripheralDiscoveryFuture?.cancel(cancelToken)
     }
 
-    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?)
-    {
-        // TODO: Use Future Callback
-//    guard keyPath != nil else {
-//            super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
-//            return
-//        }
-//        switch (keyPath!, context) {
-//        case("state", PeripheralServiceCharacteristicEditValueViewController.BCPeripheralStateKVOContext):
-//            if let change = change, let newValue = change[NSKeyValueChangeKey.newKey], let newRawState = newValue as? Int, let newState = CBPeripheralState(rawValue: newRawState) {
-//                if newState == .disconnected {
-//                    DispatchQueue.main.async { self.peripheralDisconnected() }
-//                }
-//            }
-//        default:
-//            super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
-//        }
+    func didEnterBackground() {
+        peripheral?.disconnect()
+        _ = navigationController?.popToRootViewController(animated: false)
+    }
+
+    func writeCharacteristic() {
+        guard  let characteristic = characteristic,
+            let peripheral = peripheral,
+            let newValue = valueTextField.text,
+            peripheralDiscoveryFuture != nil,
+            peripheral.state == .connected else {
+                _ = self.navigationController?.popViewController(animated: true)
+                return
+        }
+        progressView.show()
+
+        let writeFuture: Future<Void>
+        if let valueName = self.valueName {
+            if var values = characteristic.stringValue {
+                values[valueName] = newValue
+                writeFuture = characteristic.write(string: values, timeout: Double(ConfigStore.getCharacteristicReadWriteTimeout()))
+            } else {
+                writeFuture = characteristic.write(data: newValue.dataFromHexString(), timeout: Double(ConfigStore.getCharacteristicReadWriteTimeout()))
+            }
+        } else {
+            writeFuture = characteristic.write(data: newValue.dataFromHexString(), timeout:Double(ConfigStore.getCharacteristicReadWriteTimeout()))
+        }
+
+        writeFuture.onSuccess { [weak self] in
+            self?.progressView.remove().onSuccess {
+                _ = self?.navigationController?.popViewController(animated: true)
+            }
+        }
+        writeFuture.onFailure { [weak self] error in
+            self?.progressView.remove().onSuccess {
+                self?.present(UIAlertController.alert(title: "Charcteristic write error", error: error) { _ in
+                    _ = self?.navigationController?.popViewController(animated: true)
+                    return
+                }, animated:true, completion:nil)
+            }
+        }
     }
 
     // UITextFieldDelegate
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        if let newValue = self.valueTextField.text {
-            let afterWriteSuceses = { (characteristic: Characteristic) -> Void in
-                self.progressView.remove()
-                _ = self.navigationController?.popViewController(animated: true)
-                return
-            }
-            let afterWriteFailed = { (error: Swift.Error) -> Void in
-                self.progressView.remove()
-                self.present(UIAlertController.alertOnError("Characteristic Write Error", error:error) {(action) in
-                    _ = self.navigationController?.popViewController(animated: true)
-                        return
-                    } , animated:true, completion:nil)
-            }
-            self.progressView.show()
-            if let valueName = self.valueName {
-                if var values = self.characteristic.stringValue {
-                    values[valueName] = newValue
-                    let write = characteristic.write(string: values, timeout: Double(ConfigStore.getCharacteristicReadWriteTimeout()))
-                    write.onSuccess(completion: afterWriteSuceses)
-                    write.onFailure(completion: afterWriteFailed)
-                } else {
-                    let write = characteristic.write(data: newValue.dataFromHexString(), timeout: Double(ConfigStore.getCharacteristicReadWriteTimeout()))
-                    write.onSuccess(completion: afterWriteSuceses)
-                    write.onFailure(completion: afterWriteFailed)
-                }
-            } else {
-                Logger.debug("VALUE: \(newValue.dataFromHexString())")
-                let write = characteristic.write(data: newValue.dataFromHexString(), timeout:Double(ConfigStore.getCharacteristicReadWriteTimeout()))
-                write.onSuccess(completion: afterWriteSuceses)
-                write.onFailure(completion: afterWriteFailed)
-            }
-        }
+        writeCharacteristic()
         return true
     }
 

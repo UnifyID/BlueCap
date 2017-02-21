@@ -10,8 +10,8 @@ import UIKit
 
 extension UIAlertController {
  
-    class func alertOnError(_ title: String, error: Swift.Error, handler: ((UIAlertAction?) -> Void)? = nil) -> UIAlertController {
-        let alert = UIAlertController(title: title, message: error.localizedDescription, preferredStyle: UIAlertControllerStyle.alert)
+    class func alert(title: String? = nil, error: Swift.Error, handler: ((UIAlertAction?) -> Void)? = nil) -> UIAlertController {
+        let alert = UIAlertController(title: title ?? "Error", message: error.localizedDescription, preferredStyle: UIAlertControllerStyle.alert)
         alert.addAction(UIAlertAction(title: "OK", style: UIAlertActionStyle.default, handler: handler))
         return alert
     }
@@ -22,7 +22,7 @@ extension UIAlertController {
         return alert
     }
 
-    class func alertWithMessage(_ message: String, handler: ((UIAlertAction?) -> Void)? = nil) -> UIAlertController {
+    class func alert(message: String, handler: ((UIAlertAction?) -> Void)? = nil) -> UIAlertController {
         let alert = UIAlertController(title: "Alert", message:message, preferredStyle: UIAlertControllerStyle.alert)
         alert.addAction(UIAlertAction(title: "OK", style: UIAlertActionStyle.default, handler:handler))
         return alert

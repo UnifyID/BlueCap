@@ -11,7 +11,7 @@ import BlueCapKit
 
 class PeripheralAdvertisementsViewController : UITableViewController {
 
-    weak var peripheral: Peripheral?
+    var peripheralAdvertisements: PeripheralAdvertisements?
 
     @IBOutlet var localNameLabel                : UILabel!
     @IBOutlet var localNameValueLabel           : UILabel!
@@ -36,7 +36,7 @@ class PeripheralAdvertisementsViewController : UITableViewController {
         static let peripheralAdvertisementsServicesSegue = "PeripheralAdvertisementsServices"
         static let peripheralAdvertisementsServicesDataSegue = "PeripheralAdvertisementsServicesData"
         static let peripheralAdvertisementsOverflowServicesSegue = "PeripheralAdvertisementsOverflowServices"
-        static let peripheralAdvertisementsSolicitedServicesSegue = "PeripheralAdvertisement   ssSolicitedServices"
+        static let peripheralAdvertisementsSolicitedServicesSegue = "PeripheralAdvertisementsSolicitedServices"
     }
     
     required init?(coder aDecoder:NSCoder)  {
@@ -45,39 +45,40 @@ class PeripheralAdvertisementsViewController : UITableViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        if let peripheral = self.peripheral {
-            if let localName = peripheral.advertisements.localName {
-                self.localNameValueLabel.text = localName
-                self.localNameLabel.textColor = UIColor.black
-            }
-            if let txPower = peripheral.advertisements.txPower {
-                self.txPowerValueLabel.text = txPower.stringValue
-                self.txPowerLabel.textColor = UIColor.black
-            }
-            if let isConnectable = peripheral.advertisements.isConnectable {
-                self.isConnectableValueLabel.text = isConnectable.stringValue
-                self.isConnectableLabel.textColor = UIColor.black
-            }
-            if let mfgData = peripheral.advertisements.manufactuereData {
-                self.manufacturerDataValueLabel.text = mfgData.hexStringValue()
-                self.manufacturerDataLabel.textColor = UIColor.black
-            }
-            if let services = peripheral.advertisements.serviceUUIDs {
-                self.servicesLabel.textColor = UIColor.black
-                self.servicesCountLabel.text = "\(services.count)"
-            }
-            if let servicesData = peripheral.advertisements.serviceData {
-                self.servicesDataLabel.textColor = UIColor.black
-                self.servicesDataCountLabel.text = "\(servicesData.count)"
-            }
-            if let overflowServices = peripheral.advertisements.overflowServiceUUIDs {
-                self.overflowServicesLabel.textColor = UIColor.black
-                self.overflowServicesCountLabel.text = "\(overflowServices.count)"
-            }
-            if let solicitedServices = peripheral.advertisements.solicitedServiceUUIDs {
-                self.solicitedServicesLabel.textColor = UIColor.black
-                self.solicitedServicesCountLabel.text = "\(solicitedServices.count)"
-            }
+        guard let peripheralAdvertisements = peripheralAdvertisements else {
+            return
+        }
+        if let localName = peripheralAdvertisements.localName {
+            self.localNameValueLabel.text = localName
+            self.localNameLabel.textColor = UIColor.black
+        }
+        if let txPower = peripheralAdvertisements.txPower {
+            self.txPowerValueLabel.text = txPower.stringValue
+            self.txPowerLabel.textColor = UIColor.black
+        }
+        if let isConnectable = peripheralAdvertisements.isConnectable {
+            self.isConnectableValueLabel.text = isConnectable.stringValue
+            self.isConnectableLabel.textColor = UIColor.black
+        }
+        if let mfgData = peripheralAdvertisements.manufactuereData {
+            self.manufacturerDataValueLabel.text = mfgData.hexStringValue()
+            self.manufacturerDataLabel.textColor = UIColor.black
+        }
+        if let services = peripheralAdvertisements.serviceUUIDs {
+            self.servicesLabel.textColor = UIColor.black
+            self.servicesCountLabel.text = "\(services.count)"
+        }
+        if let servicesData = peripheralAdvertisements.serviceData {
+            self.servicesDataLabel.textColor = UIColor.black
+            self.servicesDataCountLabel.text = "\(servicesData.count)"
+        }
+        if let overflowServices = peripheralAdvertisements.overflowServiceUUIDs {
+            self.overflowServicesLabel.textColor = UIColor.black
+            self.overflowServicesCountLabel.text = "\(overflowServices.count)"
+        }
+        if let solicitedServices = peripheralAdvertisements.solicitedServiceUUIDs {
+            self.solicitedServicesLabel.textColor = UIColor.black
+            self.solicitedServicesCountLabel.text = "\(solicitedServices.count)"
         }
     }
     
@@ -92,36 +93,35 @@ class PeripheralAdvertisementsViewController : UITableViewController {
     }
 
     func didEnterBackground() {
-        _ = self.navigationController?.popToRootViewController(animated: false)
-        Logger.debug()
+        _ = navigationController?.popToRootViewController(animated: false)
     }
     
     override func prepare(for segue:UIStoryboardSegue, sender:Any?) {
         if segue.identifier == MainStoryboard.peripheralAdvertisementsServicesSegue {
-            let controller = segue.destination as! PeripheralAdvertisementsServicesViewController
-            controller.peripheral = self.peripheral
+            let viewController = segue.destination as! PeripheralAdvertisementsServicesViewController
+            viewController.peripheralAdvertisements = peripheralAdvertisements
         } else if segue.identifier == MainStoryboard.peripheralAdvertisementsServicesDataSegue {
-            let controller = segue.destination as! PeripheralAdvertisementsServiceDataViewController
-            controller.peripheral = self.peripheral
+            let viewController = segue.destination as! PeripheralAdvertisementsServiceDataViewController
+            viewController.peripheralAdvertisements = peripheralAdvertisements
         } else if segue.identifier == MainStoryboard.peripheralAdvertisementsOverflowServicesSegue {
-            let controller = segue.destination as! PeripheralAdvertisementsOverflowServicesViewController
-            controller.peripheral = self.peripheral
+            let viewController = segue.destination as! PeripheralAdvertisementsOverflowServicesViewController
+            viewController.peripheralAdvertisements = peripheralAdvertisements
         } else if segue.identifier == MainStoryboard.peripheralAdvertisementsSolicitedServicesSegue {
-            let controller = segue.destination as! PeripheralAdvertisementsSolicitedServicesViewController
-            controller.peripheral = self.peripheral
+            let viewController = segue.destination as! PeripheralAdvertisementsSolicitedServicesViewController
+            viewController.peripheralAdvertisements = peripheralAdvertisements
         }
     }
     
     override func shouldPerformSegue(withIdentifier identifier: String, sender: Any?) -> Bool {
-        if let advertisements = self.peripheral?.advertisements {
+        if let peripheralAdvertisements = peripheralAdvertisements {
             if identifier == MainStoryboard.peripheralAdvertisementsServicesSegue {
-                return advertisements.serviceUUIDs != nil
+                return peripheralAdvertisements.serviceUUIDs != nil
             } else if identifier == MainStoryboard.peripheralAdvertisementsServicesDataSegue {
-                return advertisements.serviceData != nil
+                return peripheralAdvertisements.serviceData != nil
             } else if identifier == MainStoryboard.peripheralAdvertisementsOverflowServicesSegue {
-                return advertisements.overflowServiceUUIDs != nil
+                return peripheralAdvertisements.overflowServiceUUIDs != nil
             } else if identifier == MainStoryboard.peripheralAdvertisementsSolicitedServicesSegue {
-                return advertisements.solicitedServiceUUIDs != nil
+                return peripheralAdvertisements.solicitedServiceUUIDs != nil
             }
         }
         return false

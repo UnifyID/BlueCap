@@ -18,10 +18,13 @@ class PeripheralServiceCharacteristicViewController : UITableViewController {
         static let peripheralServiceCharacteristicEditWriteOnlyValueSeque = "PeripheralServiceCharacteristicEditWriteOnlyValue"
     }
     
-    weak var characteristic: Characteristic!
-    weak var connectionFuture: FutureStream<(peripheral: Peripheral, connectionEvent: ConnectionEvent)>!
+    weak var characteristic: Characteristic?
+    weak var peripheral: Peripheral?
+    var peripheralDiscoveryFuture: FutureStream<[Void]>?
 
-    var peripheralViewController: PeripheralViewController!
+
+    let cancelToken = CancelToken()
+    let progressView = ProgressView()
     
     @IBOutlet var valuesLabel: UILabel!
 
@@ -48,157 +51,177 @@ class PeripheralServiceCharacteristicViewController : UITableViewController {
     }
     
     override func viewDidLoad()  {
-        self.navigationItem.title = self.characteristic.name
-
-        self.setUI()
-        
-        self.uuidLabel.text = self.characteristic.UUID.uuidString
-        self.notifyingLabel.text = self.booleanStringValue(self.characteristic.isNotifying)
-        
-        self.propertyBroadcastLabel.text = self.booleanStringValue(self.characteristic.propertyEnabled(.broadcast))
-        self.propertyReadLabel.text = self.booleanStringValue(self.characteristic.propertyEnabled(.read))
-        self.propertyWriteWithoutResponseLabel.text = self.booleanStringValue(self.characteristic.propertyEnabled(.writeWithoutResponse))
-        self.propertyWriteLabel.text = self.booleanStringValue(self.characteristic.propertyEnabled(.write))
-        self.propertyNotifyLabel.text = self.booleanStringValue(self.characteristic.propertyEnabled(.notify))
-        self.propertyIndicateLabel.text = self.booleanStringValue(self.characteristic.propertyEnabled(.indicate))
-        self.propertyAuthenticatedSignedWritesLabel.text = self.booleanStringValue(self.characteristic.propertyEnabled(.authenticatedSignedWrites))
-        self.propertyExtendedPropertiesLabel.text = self.booleanStringValue(self.characteristic.propertyEnabled(.extendedProperties))
-        self.propertyNotifyEncryptionRequiredLabel.text = self.booleanStringValue(self.characteristic.propertyEnabled(.notifyEncryptionRequired))
-        self.propertyIndicateEncryptionRequiredLabel.text = self.booleanStringValue(self.characteristic.propertyEnabled(.indicateEncryptionRequired))
-        self.navigationItem.backBarButtonItem = UIBarButtonItem(title:"", style:.plain, target:nil, action:nil)
+        guard let characteristic = characteristic,
+              peripheral != nil
+        else {
+            _ = navigationController?.popToRootViewController(animated: false)
+            return
+        }
+        navigationItem.title = characteristic.name
+        navigationItem.backBarButtonItem = UIBarButtonItem(title:"", style:.plain, target:nil, action:nil)
     }
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        self.setUI()
-        // TODO: Use Future Callback
-//        let options = NSKeyValueObservingOptions([.new])
-//        self.characteristic?.service?.peripheral?.addObserver(self, forKeyPath: "state", options: options, context: &PeripheralServiceCharacteristicViewController.BCPeripheralStateKVOContext)
+        guard let peripheral = peripheral,
+              let peripheralDiscoveryFuture = peripheralDiscoveryFuture,
+              peripheral.state == .connected,
+              characteristic != nil
+        else {
+            _ = navigationController?.popToRootViewController(animated: false)
+            return
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(PeripheralServiceCharacteristicViewController.didEnterBackground), name: NSNotification.Name.UIApplicationDidEnterBackground, object: nil)
+        setUI()
+        peripheralDiscoveryFuture.onSuccess(cancelToken: cancelToken)  { [weak self] _ in
+            self?.updateUI()
+        }
+        peripheralDiscoveryFuture.onFailure { [weak self] error in
+            guard let strongSelf = self else {
+                return
+            }
+            strongSelf.progressView.remove().onSuccess {
+                strongSelf.presentAlertIngoringForcedDisconnect(title: "Connection Error", error: error)
+                strongSelf.updateWhenActive()
+            }
+        }
     }
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        // TODO: Use Future Callback
-//        self.characteristic?.service?.peripheral?.removeObserver(self, forKeyPath: "state", context: &PeripheralServiceCharacteristicViewController.BCPeripheralStateKVOContext)
         NotificationCenter.default.removeObserver(self)
+        _ = peripheralDiscoveryFuture?.cancel(cancelToken)
     }
 
     override func prepare(for segue:UIStoryboardSegue, sender:Any!) {
         if segue.identifier == MainStoryboard.peripheralServiceCharacteristicValueSegue {
             let viewController = segue.destination as! PeripheralServiceCharacteristicValuesViewController
-            viewController.characteristic = self.characteristic
+            viewController.characteristic = characteristic
+            viewController.peripheral = peripheral
+            viewController.peripheralDiscoveryFuture = peripheralDiscoveryFuture
         } else if segue.identifier == MainStoryboard.peripheralServiceCharacteristicEditWriteOnlyDiscreteValuesSegue {
             let viewController = segue.destination as! PeripheralServiceCharacteristicEditDiscreteValuesViewController
-            viewController.characteristic = self.characteristic
+            viewController.characteristic = characteristic
+            viewController.peripheral = peripheral
+            viewController.peripheralDiscoveryFuture = peripheralDiscoveryFuture
         } else if segue.identifier == MainStoryboard.peripheralServiceCharacteristicEditWriteOnlyValueSeque {
             let viewController = segue.destination as! PeripheralServiceCharacteristicEditValueViewController
-            viewController.characteristic = self.characteristic
-            viewController.valueName = nil
+            viewController.characteristic = characteristic
+            viewController.peripheral = peripheral
+            viewController.peripheralDiscoveryFuture = peripheralDiscoveryFuture
+            if let characteristic = characteristic,
+               let stringValues = characteristic.stringValue
+            {
+                let selectedIndex = sender as! IndexPath
+                let names = Array(stringValues.keys)
+                viewController.valueName = names[selectedIndex.row]
+            }
         }
     }
     
     override func shouldPerformSegue(withIdentifier identifier: String?, sender: Any?) -> Bool {
-        if let _ = identifier {
-            return (self.characteristic.propertyEnabled(.read) || self.characteristic.isNotifying || self.characteristic.propertyEnabled(.write)) && self.peripheralViewController.peripheralConnected
-        } else {
+        guard let characteristic = characteristic,
+              identifier != nil
+        else {
             return false
         }
+        return characteristic.propertyEnabled(.read)    ||
+               characteristic.isNotifying               ||
+               characteristic.propertyEnabled(.write)
     }
     
     @IBAction func toggleNotificatons() {
-        if self.characteristic.isNotifying {
-            let future = self.characteristic.stopNotifying()
-            future.onSuccess {_ in
-                self.setUI()
-                self.characteristic.stopNotificationUpdates()
+        progressView.show()
+        
+        guard let peripheralDiscoveryFuture = peripheralDiscoveryFuture else {
+            return
+        }
+
+        let updateFuture = peripheralDiscoveryFuture.flatMap { [weak self] _ -> Future<Void> in
+            guard let strongSelf = self, let characteristic = strongSelf.characteristic else {
+                throw AppError.unlikelyFailure
             }
-            future.onFailure {(error) in
-                self.notifySwitch.isOn = false
-                self.setUI()
-                self.present(UIAlertController.alertOnError("Stop Notifications Error", error: error), animated: true, completion: nil)
+            return strongSelf.notifySwitch.isOn ? characteristic.startNotifying() : characteristic.stopNotifying()
+        }
+
+        updateFuture.onSuccess { [weak self] in
+            _ = self?.progressView.remove()
+            self?.updateUI()
+            self?.updateWhenActive()
+        }
+        updateFuture.onFailure{ [weak self] error in
+            self?.progressView.remove().onSuccess {
+                self?.present(UIAlertController.alert(title: "Characteristic notification error", error: error), animated: true, completion: nil)
             }
-        } else {
-            let future = self.characteristic.startNotifying()
-            future.onSuccess {_ in
-                self.setUI()
-            }
-            future.onFailure {(error) in
-                self.notifySwitch.isOn = false
-                self.setUI()
-                self.present(UIAlertController.alertOnError("Start Notifications Error", error: error), animated: true, completion: nil)
-            }
+            self?.updateUI()
         }
     }
-    
+
     func setUI() {
-        if (!self.characteristic.propertyEnabled(.read) && !self.characteristic.propertyEnabled(.write) && !self.characteristic.isNotifying) || !self.peripheralViewController.peripheralConnected {
-            self.valuesLabel.textColor = UIColor.lightGray
-        } else {
-            self.valuesLabel.textColor = UIColor.black
+        guard let characteristic = characteristic else {
+            return
         }
-        if self.peripheralViewController.peripheralConnected &&
-            (characteristic.propertyEnabled(.notify)                     ||
+        uuidLabel.text = characteristic.uuid.uuidString
+        notifyingLabel.text = booleanStringValue(characteristic.isNotifying)
+        propertyBroadcastLabel.text = booleanStringValue(characteristic.propertyEnabled(.broadcast))
+        propertyReadLabel.text = booleanStringValue(characteristic.propertyEnabled(.read))
+        propertyWriteWithoutResponseLabel.text = booleanStringValue(characteristic.propertyEnabled(.writeWithoutResponse))
+        propertyWriteLabel.text = booleanStringValue(characteristic.propertyEnabled(.write))
+        propertyNotifyLabel.text = booleanStringValue(characteristic.propertyEnabled(.notify))
+        propertyIndicateLabel.text = booleanStringValue(characteristic.propertyEnabled(.indicate))
+        propertyAuthenticatedSignedWritesLabel.text = booleanStringValue(characteristic.propertyEnabled(.authenticatedSignedWrites))
+        propertyExtendedPropertiesLabel.text = booleanStringValue(characteristic.propertyEnabled(.extendedProperties))
+        propertyNotifyEncryptionRequiredLabel.text = booleanStringValue(characteristic.propertyEnabled(.notifyEncryptionRequired))
+        propertyIndicateEncryptionRequiredLabel.text = booleanStringValue(characteristic.propertyEnabled(.indicateEncryptionRequired))
+        updateUI()
+    }
+
+    func updateUI() {
+        guard let characteristic = characteristic else {
+            return
+        }
+
+        if (characteristic.propertyEnabled(.read) || characteristic.propertyEnabled(.write) || characteristic.isNotifying) {
+            valuesLabel.textColor = UIColor.black
+        } else {
+            valuesLabel.textColor = UIColor.lightGray
+        }
+        if (characteristic.propertyEnabled(.notify)                      ||
              characteristic.propertyEnabled(.indicate)                   ||
              characteristic.propertyEnabled(.notifyEncryptionRequired)   ||
              characteristic.propertyEnabled(.indicateEncryptionRequired)) {
-            self.notifyLabel.textColor = UIColor.black
-            self.notifySwitch.isEnabled = true
-            self.notifySwitch.isOn = self.characteristic.isNotifying
+            notifyLabel.textColor = UIColor.black
+            notifySwitch.isEnabled = true
+            notifySwitch.isOn = characteristic.isNotifying
         } else {
-            self.notifyLabel.textColor = UIColor.lightGray
-            self.notifySwitch.isEnabled = false
-            self.notifySwitch.isOn = false
+            notifyLabel.textColor = UIColor.lightGray
+            notifySwitch.isEnabled = false
+            notifySwitch.isOn = false
         }
-        self.notifyingLabel.text = self.booleanStringValue(self.characteristic.isNotifying)
+        notifyingLabel.text = booleanStringValue(characteristic.isNotifying)
     }
     
     func booleanStringValue(_ value: Bool) -> String {
         return value ? "YES" : "NO"
     }
     
-    func peripheralDisconnected() {
-        Logger.debug()
-        if self.peripheralViewController.peripheralConnected {
-            self.present(UIAlertController.alertWithMessage("Peripheral disconnected") {(action) in
-                    self.peripheralViewController.peripheralConnected = false
-                    self.setUI()
-                }, animated: true, completion: nil)
-        }
-    }
-
     func didEnterBackground() {
-        _ = self.navigationController?.popToRootViewController(animated: false)
-        Logger.debug()
+        peripheral?.disconnect()
+        _ = navigationController?.popToRootViewController(animated: false)
     }
-    
-    // TODO: Use Future Callback
-//    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
-//        guard keyPath != nil else {
-//            super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
-//            return
-//        }
-//        switch (keyPath!, context) {
-//        case("state", PeripheralServiceCharacteristicViewController.BCPeripheralStateKVOContext):
-//            if let change = change, let newValue = change[NSKeyValueChangeKey.newKey], let newRawState = newValue as? Int, let newState = CBPeripheralState(rawValue: newRawState) {
-//                if newState == .disconnected {
-//                    DispatchQueue.main.async { self.peripheralDisconnected() }
-//                }
-//            }
-//        default:
-//            super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
-//        }
-//    }
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        if (indexPath as NSIndexPath).row == 0 {
-            if self.characteristic.propertyEnabled(.read) || self.characteristic.isNotifying  {
-                self.performSegue(withIdentifier: MainStoryboard.peripheralServiceCharacteristicValueSegue, sender: indexPath)
-            } else if (self.characteristic.propertyEnabled(.write) || self.characteristic.propertyEnabled(.writeWithoutResponse)) && !self.characteristic.propertyEnabled(.read) {
-                if self.characteristic.stringValues.isEmpty {
-                    self.performSegue(withIdentifier: MainStoryboard.peripheralServiceCharacteristicEditWriteOnlyValueSeque, sender: indexPath)
+        guard let characteristic = characteristic else {
+            return
+        }
+        if indexPath.row == 0 && indexPath.section == 0 {
+            if characteristic.propertyEnabled(.read) || characteristic.isNotifying  {
+                performSegue(withIdentifier: MainStoryboard.peripheralServiceCharacteristicValueSegue, sender: indexPath)
+            } else if (characteristic.propertyEnabled(.write) || characteristic.propertyEnabled(.writeWithoutResponse)) && !characteristic.propertyEnabled(.read) {
+                if characteristic.stringValues.isEmpty {
+                    performSegue(withIdentifier: MainStoryboard.peripheralServiceCharacteristicEditWriteOnlyValueSeque, sender: indexPath)
                 } else {
-                    self.performSegue(withIdentifier: MainStoryboard.peripheralServiceCharacteristicEditWriteOnlyDiscreteValuesSegue, sender: indexPath)
+                    performSegue(withIdentifier: MainStoryboard.peripheralServiceCharacteristicEditWriteOnlyDiscreteValuesSegue, sender: indexPath)
                 }
             }
         }

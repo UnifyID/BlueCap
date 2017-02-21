@@ -48,7 +48,7 @@ public protocol Serializable {
 
 public protocol CharacteristicConfigurable {
     static var name: String { get }
-    static var UUID: String { get }
+    static var uuid: String { get }
     static var permissions: CBAttributePermissions { get }
     static var properties: CBCharacteristicProperties { get }
     static var initialValue: Data? { get }
@@ -56,26 +56,26 @@ public protocol CharacteristicConfigurable {
 
 public protocol ServiceConfigurable {
     static var name: String { get }
-    static var UUID: String { get }
+    static var uuid: String { get }
     static var tag: String { get }
 }
 
 public protocol StringDeserializable {
     static var stringValues: [String] { get }
-    var stringValue: [String:String] { get }
-    init?(stringValue:[String:String])
+    var stringValue: [String : String] { get }
+    init?(stringValue:[String : String])
 }
 
 public protocol RawDeserializable {
     associatedtype RawType
-    static var UUID: String { get }
+    static var uuid: String { get }
     var rawValue: RawType { get }
     init?(rawValue: RawType)
 }
 
 public protocol RawArrayDeserializable {
     associatedtype RawType
-    static var UUID: String { get }
+    static var uuid: String { get }
     static var size: Int { get }
     var rawValue: [RawType] { get }
     init?(rawValue: [RawType])
@@ -84,7 +84,7 @@ public protocol RawArrayDeserializable {
 public protocol RawPairDeserializable {
     associatedtype RawType1
     associatedtype RawType2
-    static var UUID: String { get }
+    static var uuid: String { get }
     var rawValue1: RawType1 { get }
     var rawValue2: RawType2 { get }
     init?(rawValue1: RawType1, rawValue2: RawType2)
@@ -93,7 +93,7 @@ public protocol RawPairDeserializable {
 public protocol RawArrayPairDeserializable {
     associatedtype RawType1
     associatedtype RawType2
-    static var UUID: String { get }
+    static var uuid: String { get }
     static var size1: Int { get }
     static var size2: Int { get }
     var rawValue1: [RawType1] { get }
@@ -125,15 +125,15 @@ public struct SerDe {
         return Data.serializeArray(values)
     }
 
-    public static func deserialize<T: RawDeserializable>(_ data:Data) -> T? where T.RawType: Deserializable {
+    public static func deserialize<T: RawDeserializable>(_ data: Data) -> T? where T.RawType: Deserializable {
         return T.RawType.deserialize(data).flatMap{ T(rawValue: $0) }
     }
 
-    public static func serialize<T: RawDeserializable>(_ value:T) -> Data {
+    public static func serialize<T: RawDeserializable>(_ value: T) -> Data {
         return Data.serialize(value.rawValue)
     }
 
-    public static func deserialize<T: RawArrayDeserializable>(_ data:Data) -> T? where T.RawType: Deserializable {
+    public static func deserialize<T: RawArrayDeserializable>(_ data: Data) -> T? where T.RawType: Deserializable {
         if data.count >= T.size {
             return T(rawValue:T.RawType.deserialize(data))
         } else {
@@ -145,7 +145,7 @@ public struct SerDe {
         return Data.serializeArray(value.rawValue)
     }
 
-    public static func deserialize<T: RawPairDeserializable>(_ data:Data) -> T? where T.RawType1: Deserializable,  T.RawType2: Deserializable {
+    public static func deserialize<T: RawPairDeserializable>(_ data: Data) -> T? where T.RawType1: Deserializable,  T.RawType2: Deserializable {
         if data.count >= (T.RawType1.size + T.RawType2.size) {
             let rawData1 = data.subdata(in: 0..<T.RawType1.size)
             let rawData2 = data.subdata(in: T.RawType1.size..<T.RawType2.size+T.RawType1.size)

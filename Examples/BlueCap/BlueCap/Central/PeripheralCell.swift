@@ -10,8 +10,10 @@ import UIKit
 
 class PeripheralCell : UITableViewCell {
 
-    @IBOutlet var rssiLabel     : UILabel!
-    @IBOutlet var stateLabel    : UILabel!
-    @IBOutlet var nameLabel     : UILabel!
+    @IBOutlet var rssiImage: UIImageView!
+    @IBOutlet var rssiLabel: UILabel!
+    @IBOutlet var stateLabel: UILabel!
+    @IBOutlet var nameLabel: UILabel!
+    @IBOutlet var servicesLabel: UILabel!
     
 }

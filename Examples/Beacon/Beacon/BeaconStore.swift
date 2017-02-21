@@ -6,63 +6,46 @@
 //  Copyright (c) 2015 Troy Stribling. The MIT License (MIT).
 //
 
-import UIKit
-
-//
-//  PeripheralStore.swift
-//  BlueCap
-//
-//  Created by Troy Stribling on 8/10/14.
-//  Copyright (c) 2014 Troy Stribling. The MIT License (MIT).
-//
-
 import Foundation
 import BlueCapKit
 import CoreBluetooth
 
 class BeaconStore {
     
-    class func getBeaconUUID() -> NSUUID? {
-        if let uuid = NSUserDefaults.standardUserDefaults().stringForKey("beaconUUID") {
-            return NSUUID(UUIDString:uuid)
-        } else {
-            return nil
-        }
+    class func getBeaconUUID() -> UUID? {
+        return UserDefaults.standard.string(forKey: "beaconUUID").flatMap { UUID(uuidString:$0) }
     }
     
-    class func setBeaconUUID(uuid:NSUUID) {
-        NSUserDefaults.standardUserDefaults().setObject(uuid.UUIDString, forKey:"beaconUUID")
+    class func setBeaconUUID(_ uuid: UUID) {
+        UserDefaults.standard.set(uuid.uuidString, forKey: "beaconUUID")
     }
 
     class func getBeaconName() -> String? {
-        return NSUserDefaults.standardUserDefaults().stringForKey("beaconName")
+        return UserDefaults.standard.string(forKey: "beaconName")
     }
 
-    class func setBeaconName(name:String) {
-        NSUserDefaults.standardUserDefaults().setObject(name, forKey:"beaconName")
+    class func setBeaconName(_ name: String) {
+        UserDefaults.standard.set(name, forKey: "beaconName")
     }
         
 
     class func getBeaconConfig() -> [UInt16] {
-        let userDefaults = NSUserDefaults.standardUserDefaults()
-        if let storedConfig = userDefaults.arrayForKey("beaconConfig") {
+        return UserDefaults.standard.array(forKey: "beaconConfig").map { storedConfig in
             var config = [UInt16]()
             if storedConfig.count == 2 {
                 let minor = storedConfig[0] as! NSNumber
                 let major = storedConfig[1] as! NSNumber
-                config = [minor.unsignedShortValue, major.unsignedShortValue]
+                config = [minor.uint16Value, major.uint16Value]
             }
             return config
-        } else {
-            return []
-        }
+        } ??  []
     }
     
-    class func setBeaconConfig(config:[UInt16]) {
+    class func setBeaconConfig(_ config: [UInt16]) {
         if config.count == 2 {
-            let userDefaults = NSUserDefaults.standardUserDefaults()
-            let storeConfigs = [NSNumber(unsignedShort:config[0]), NSNumber(unsignedShort:config[1])]
-            userDefaults.setObject(storeConfigs, forKey:"beaconConfig")
+            let userDefaults = UserDefaults.standard
+            let storeConfigs = [NSNumber(value: config[0] as UInt16), NSNumber(value: config[1] as UInt16)]
+            userDefaults.set(storeConfigs, forKey:"beaconConfig")
         }
     }
     

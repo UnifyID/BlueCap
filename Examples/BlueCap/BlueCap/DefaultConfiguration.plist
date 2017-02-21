@@ -4,14 +4,14 @@
 <dict>
 	<key>scanMode</key>
 	<integer>0</integer>
-	<key>scanTimeoutEnabled</key>
+	<key>scanEnabledEnabled</key>
 	<false/>
-	<key>scanTimeout</key>
+	<key>scanDuration</key>
 	<integer>10</integer>
 	<key>peripheralConnectionTimeoutEnabled</key>
 	<true/>
 	<key>peripheralConnectionTimeout</key>
-	<integer>10</integer>
+	<integer>5</integer>
 	<key>characteristicReadWriteTimeout</key>
 	<integer>10</integer>
 	<key>peripheralMaximumDisconnectionsEnabled</key>
@@ -23,9 +23,9 @@
 	<key>peripheralMaximumTimeouts</key>
 	<integer>5</integer>
 	<key>maximumPeripheralsConnected</key>
-	<integer>10</integer>
+	<integer>1</integer>
 	<key>maximumPeripheralsDiscovered</key>
-	<integer>10</integer>
+	<integer>20</integer>
 	<key>peripheralSortOrder</key>
 	<integer>0</integer>
 </dict>

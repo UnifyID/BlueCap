@@ -10,6 +10,13 @@ import UIKit
 import CoreBluetooth
 import BlueCapKit
 
+enum AppError: Error {
+    case invalidState
+    case resetting
+    case poweredOff
+    case unsupported
+}
+
 class ViewController: UITableViewController, UITextFieldDelegate {
     
     @IBOutlet var nameTextField: UITextField!
@@ -19,10 +26,15 @@ class ViewController: UITableViewController, UITextFieldDelegate {
     @IBOutlet var generateUUIDButton: UIButton!
     @IBOutlet var startAdvertisingSwitch: UISwitch!
     @IBOutlet var startAdvertisingLabel: UILabel!
+    
+    let estimoteUUID = UUID(uuidString: "B9407F30-F5F8-466E-AFF9-25556B57FE6D")!
 
-    let manager = PeripheralManager()
+    let manager = PeripheralManager(options: [CBPeripheralManagerOptionRestoreIdentifierKey : "us.gnos.BlueCap.ibeacon-simulator.example" as NSString])
 
     required init?(coder aDecoder: NSCoder) {
+        if BeaconStore.getBeaconUUID() == nil {
+            BeaconStore.setBeaconUUID(estimoteUUID)
+        }
         super.init(coder: aDecoder)
     }
     
@@ -30,130 +42,120 @@ class ViewController: UITableViewController, UITextFieldDelegate {
         super.viewDidLoad()
     }
     
-    override func viewWillAppear(animated: Bool) {
+    override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        self.startAdvertisingLabel.textColor = UIColor.lightGrayColor()
-        self.startAdvertisingSwitch.on = false
-        self.setUI()
+        startAdvertisingLabel.textColor = UIColor.lightGray
+        startAdvertisingSwitch.isOn = false
+        setUI()
     }
     
-    override func viewWillDisappear(animated: Bool) {
+    override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
     }
     
-    @IBAction func generateUUID(sender: AnyObject) {
-        let uuid = NSUUID()
-        self.uuidTextField.text = uuid.UUIDString
+    @IBAction func generateUUID(_ sender: AnyObject) {
+        let uuid = UUID()
+        uuidTextField.text = uuid.uuidString
         BeaconStore.setBeaconUUID(uuid)
-        self.setUI()
+        setUI()
+    }
+
+    @IBAction func toggleAdvertise(_ sender: AnyObject) {
+        if manager.isAdvertising {
+            _ = manager.stopAdvertising()
+        } else {
+            startAdvertising()
+        }
     }
 
     // UITextFieldDelegate
-    func textFieldShouldReturn(textField: UITextField) -> Bool {
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         return self.addBeacon(textField)
     }
     
-    func addBeacon(textField: UITextField) -> Bool {
-        if let enteredName = self.nameTextField.text, enteredMajor = self.majorTextField.text, enteredMinor = self.minorTextField.text
-        where !enteredName.isEmpty && !enteredMinor.isEmpty && !enteredMajor.isEmpty {
-            if let minor = Int(enteredMinor),  major = Int(enteredMajor) where minor < 65536 && major < 65536 {
-                if let enteredUUID = self.uuidTextField.text where !enteredUUID.isEmpty {
-                    if let uuid = NSUUID(UUIDString: enteredUUID), minor = Int(enteredMinor),  major = Int(enteredMajor) {
-                        BeaconStore.setBeaconUUID(uuid)
-                        BeaconStore.setBeaconConfig([UInt16(minor), UInt16(major)])
-                        BeaconStore.setBeaconName(enteredName)
-                        textField.resignFirstResponder()
-                        self.setUI()
-                    } else {
-                        self.presentViewController(UIAlertController.alertOnErrorWithMessage("UUID '\(enteredUUID)' is Invalid"), animated: true, completion: nil)
-                        self.startAdvertisingSwitch.on = false
-                        return false
-                    }
-                }
-                return true
-            } else {
-                self.presentViewController(UIAlertController.alertOnErrorWithMessage("major and minor not convertable to a number"), animated: true, completion: nil)
-                return false
-            }
-        } else {
+    func addBeacon(_ textField: UITextField) -> Bool {
+        guard let enteredName = self.nameTextField.text,
+              let enteredMajor = self.majorTextField.text,
+              let enteredMinor = self.minorTextField.text,
+              !enteredName.isEmpty && !enteredMinor.isEmpty && !enteredMajor.isEmpty else {
             return false
         }
+        guard let minor = Int(enteredMinor),  let major = Int(enteredMajor), minor < 65536 && major < 65536 else {
+            self.present(UIAlertController.alertOnErrorWithMessage("major and minor not convertable to a number"), animated: true, completion: nil)
+            return false
+        }
+        guard let enteredUUID = self.uuidTextField.text, !enteredUUID.isEmpty else {
+            return false
+        }
+        guard let uuid = UUID(uuidString: enteredUUID) else {
+            present(UIAlertController.alertOnErrorWithMessage("UUID '\(enteredUUID)' is Invalid"), animated: true, completion: nil)
+            startAdvertisingSwitch.isOn = false
+            return false
+        }
+        BeaconStore.setBeaconUUID(uuid)
+        BeaconStore.setBeaconConfig([UInt16(minor), UInt16(major)])
+        BeaconStore.setBeaconName(enteredName)
+        textField.resignFirstResponder()
+        setUI()
+        return true
     }
     
-    @IBAction func toggleAdvertise(sender: AnyObject) {
-        if self.manager.isAdvertising {
-            let stopAdvertiseFuture = self.manager.stopAdvertising()
-            stopAdvertiseFuture.onSuccess {
-                self.presentViewController(UIAlertController.alertWithMessage("stoped advertising"), animated: true, completion: nil)
+    func startAdvertising() {
+        guard let beaconRegion = createBeaconRegion() else {
+            return
+        }
+        
+        let startAdvertiseFuture = manager.whenStateChanges().flatMap { [unowned self] state -> Future<Void> in
+            switch state {
+            case .poweredOn:
+                return self.manager.startAdvertising(beaconRegion)
+            case .poweredOff:
+                throw AppError.poweredOff
+            case .unauthorized, .unknown:
+                throw AppError.invalidState
+            case .unsupported:
+                throw AppError.unsupported
+            case .resetting:
+                throw AppError.resetting
             }
-            stopAdvertiseFuture.onFailure {error in
-                self.presentViewController(UIAlertController.alertOnError(error), animated: true, completion: nil)
-            }
-        } else {
-            // Start advertising on bluetooth power on
-            if let beaconRegion = self.createBeaconRegion() {
-                let startAdvertiseFuture = self.manager.whenPowerOn().flatmap{ _ in
-                    self.manager.startAdvertising(beaconRegion)
-                }
-                startAdvertiseFuture.onSuccess {
-                    self.presentViewController(UIAlertController.alertWithMessage("powered on and started advertising"), animated: true, completion: nil)
-                }
-                startAdvertiseFuture.onFailure { error in
-                    self.presentViewController(UIAlertController.alertOnError(error), animated: true, completion: nil)
-                    self.startAdvertisingSwitch.on = false
-                }
-            }
+        }
 
-            // stop advertising on bluetooth power off
-            let powerOffFuture = self.manager.whenPowerOff().flatmap { _ in
-                self.manager.stopAdvertising()
-            }
-            powerOffFuture.onSuccess {
-                self.startAdvertisingSwitch.on = false
-                self.startAdvertisingSwitch.enabled = false
-                self.startAdvertisingLabel.textColor = UIColor.lightGrayColor()
-                self.presentViewController(UIAlertController.alertWithMessage("powered off and stopped advertising"), animated: true, completion: nil)
-            }
-            powerOffFuture.onFailure {error in
-                self.startAdvertisingSwitch.on = false
-                self.startAdvertisingSwitch.enabled = false
-                self.startAdvertisingLabel.textColor = UIColor.lightGrayColor()
-                self.presentViewController(UIAlertController.alertWithMessage("advertising failed"), animated: true, completion: nil)
-            }
+        startAdvertiseFuture.onSuccess { [unowned self] in
+            self.present(UIAlertController.alertWithMessage("powered on and started advertising"), animated: true, completion: nil)
+        }
 
-            // enable controls when bluetooth is powered on again after stop advertising is successul
-            let powerOffFutureSuccessFuture = powerOffFuture.flatmap { _ in
-                self.manager.whenPowerOn()
+        startAdvertiseFuture.onFailure { [unowned self] error in
+            switch error {
+            case AppError.poweredOff:
+                self.present(UIAlertController.alertWithMessage("PeripheralManager powered off") { _ in
+                    self.manager.reset()
+                }, animated: true)
+            case AppError.resetting:
+                let message = "PeripheralManager state \"\(self.manager.state)\". The connection with the system bluetooth service was momentarily lost.\n Restart advertising."
+                self.present(UIAlertController.alertWithMessage(message) { _ in
+                    self.manager.reset()
+                }, animated: true)
+            case AppError.unsupported:
+                self.present(UIAlertController.alertWithMessage("Bluetooth not supported"), animated: true)
+            default:
+                self.present(UIAlertController.alertOnError(error) { _ in
+                    self.manager.reset()
+                }, animated: true, completion: nil)
             }
-            powerOffFutureSuccessFuture.onSuccess {
-                self.startAdvertisingSwitch.enabled = true
-                self.startAdvertisingLabel.textColor = UIColor.blackColor()
-            }
-            
-            // enable controls when bluetooth is powered on again after stop advertising fails
-            let powerOffFutureFailedFuture = powerOffFuture.recoverWith { _  in
-                self.manager.whenPowerOn()
-            }
-            powerOffFutureFailedFuture.onSuccess {
-                if self.manager.poweredOn {
-                    self.startAdvertisingSwitch.enabled = true
-                    self.startAdvertisingLabel.textColor = UIColor.blackColor()
-                }
-            }
+            _ = self.manager.stopAdvertising()
         }
     }
 
-    func createBeaconRegion() -> FLBeaconRegion? {
-        if let name = BeaconStore.getBeaconName(), uuid = BeaconStore.getBeaconUUID() {
-            let config = BeaconStore.getBeaconConfig()
-            if config.count == 2 {
-                return FLBeaconRegion(proximityUUID: uuid, identifier: name, major: config[1], minor: config[0])
-            } else {
-                self.presentViewController(UIAlertController.alertOnErrorWithMessage("configuration invalid"), animated: true, completion: nil)
-                return nil
-            }
+    func createBeaconRegion() -> BeaconRegion? {
+        guard let name = BeaconStore.getBeaconName(), let uuid = BeaconStore.getBeaconUUID() else {
+            present(UIAlertController.alertOnErrorWithMessage("configuration invalid"), animated: true, completion: nil)
+            return nil
+        }
+        let config = BeaconStore.getBeaconConfig()
+        if config.count == 2 {
+            return BeaconRegion(proximityUUID: uuid, identifier: name, major: config[1], minor: config[0])
         } else {
-            self.presentViewController(UIAlertController.alertOnErrorWithMessage("configuration invalid"), animated: true, completion: nil)
+            present(UIAlertController.alertOnErrorWithMessage("configuration invalid"), animated: true, completion: nil)
             return nil
         }
     }
@@ -161,27 +163,27 @@ class ViewController: UITableViewController, UITextFieldDelegate {
     func setUI() {
         var uuidSet = false
         if let uuid = BeaconStore.getBeaconUUID() {
-            self.uuidTextField.text = uuid.UUIDString
+            uuidTextField.text = uuid.uuidString
             uuidSet = true
         }
         var nameSet = false
         if let name = BeaconStore.getBeaconName() {
-            self.nameTextField.text = name
+            nameTextField.text = name
             nameSet = true
         }
         var majoMinorSet = false
         let beaconConfig = BeaconStore.getBeaconConfig()
         if beaconConfig.count == 2 {
-            self.minorTextField.text = "\(beaconConfig[0])"
-            self.majorTextField.text = "\(beaconConfig[1])"
+            minorTextField.text = "\(beaconConfig[0])"
+            majorTextField.text = "\(beaconConfig[1])"
             majoMinorSet = true
         }
         if uuidSet && nameSet && majoMinorSet {
-            self.startAdvertisingLabel.textColor = UIColor.blackColor()
-            self.startAdvertisingSwitch.enabled = true
+            startAdvertisingLabel.textColor = UIColor.black
+            startAdvertisingSwitch.isEnabled = true
         } else {
-            self.startAdvertisingLabel.textColor = UIColor.lightGrayColor()
-            self.startAdvertisingSwitch.enabled = false
+            startAdvertisingLabel.textColor = UIColor.lightGray
+            startAdvertisingSwitch.isEnabled = false
         }
     }
 }

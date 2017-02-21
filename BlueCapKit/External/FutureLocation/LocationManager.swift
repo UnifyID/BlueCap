@@ -16,6 +16,7 @@ public enum LocationError : Swift.Error {
     case authorizationAlwaysFailed
     case authorizationWhenInUseFailed
     case authroizationInvalid
+    case authorizationFailed
 }
 
 // MARK: - CLLocationManagerInjectable -
@@ -53,23 +54,19 @@ public protocol CLLocationManagerInjectable {
     // MARK: Region Monitoring
     var maximumRegionMonitoringDistance: CLLocationDistance { get }
     var monitoredRegions: Set<CLRegion> { get }
-    func startMonitoringForRegion(_ region: CLRegion)
-    func stopMonitoringForRegion(_ region: CLRegion)
+    func startMonitoring(for region: CLRegion)
+    func stopMonitoring(for region: CLRegion)
+    func requestState(for region: CLRegion)
 
     // MARK: Beacons
     static func isRangingAvailable() -> Bool
     var rangedRegions: Set<CLRegion> { get }
-    func requestStateForRegion(_ region: CLRegion)
 }
 
 extension CLLocationManager : CLLocationManagerInjectable {}
 
 // MARK: - FLLocationManager -
 public class LocationManager : NSObject, CLLocationManagerDelegate {
-
-    // MARK: Serilaize Property IO
-    static let ioQueue = Queue("us.gnos.futureLocation.location-manager.io")
-
 
     // MARK: Properties
     fileprivate var locationUpdatePromise: StreamPromise<[CLLocation]>?
@@ -78,18 +75,9 @@ public class LocationManager : NSObject, CLLocationManagerDelegate {
     fileprivate var authorizationStatusChangedPromise: Promise<CLAuthorizationStatus>?
     fileprivate var authorizationFuture: Future<Void>?
 
-    fileprivate var _isUpdating = false
+    fileprivate(set) var clLocationManager: CLLocationManagerInjectable
 
-    internal fileprivate(set) var clLocationManager: CLLocationManagerInjectable
-
-    public fileprivate(set) var isUpdating: Bool {
-        get {
-            return LocationManager.ioQueue.sync { return self._isUpdating }
-        }
-        set {
-            LocationManager.ioQueue.sync { self._isUpdating = newValue }
-        }
-    }
+    public fileprivate(set) var isUpdating = false
 
     // MARK: Configure
     public var pausesLocationUpdatesAutomatically: Bool {
@@ -135,25 +123,25 @@ public class LocationManager : NSObject, CLLocationManagerDelegate {
     }
 
     fileprivate func requestWhenInUseAuthorization()  {
-        self.clLocationManager.requestWhenInUseAuthorization()
+        clLocationManager.requestWhenInUseAuthorization()
     }
 
     fileprivate func requestAlwaysAuthorization() {
-        self.clLocationManager.requestAlwaysAuthorization()
+        clLocationManager.requestAlwaysAuthorization()
     }
 
     public func authorize(_ authorization: CLAuthorizationStatus, context: ExecutionContext = QueueContext.main) -> Future<Void> {
         let currentAuthorization = self.authorizationStatus()
-        if currentAuthorization != authorization {
+        if currentAuthorization != authorization && currentAuthorization != .authorizedAlways {
             if let authorizationFuture = self.authorizationFuture, !authorizationFuture.completed {
                 return authorizationFuture
             }
-            self.authorizationStatusChangedPromise = Promise<CLAuthorizationStatus>()
+            authorizationStatusChangedPromise = Promise<CLAuthorizationStatus>()
             switch authorization {
             case .authorizedAlways:
-                self.requestAlwaysAuthorization()
+                requestAlwaysAuthorization()
             case .authorizedWhenInUse:
-                self.requestWhenInUseAuthorization()
+                requestWhenInUseAuthorization()
             default:
                 Logger.debug("requested location authorization invalid")
                 return Future(error: LocationError.authroizationInvalid)
@@ -178,6 +166,7 @@ public class LocationManager : NSObject, CLLocationManagerDelegate {
             }
             return authorizationFuture!
         } else {
+            Logger.debug("requested authoriztation given: \(currentAuthorization)")
             return Future(value: ())
         }
     }
@@ -236,8 +225,8 @@ public class LocationManager : NSObject, CLLocationManagerDelegate {
         if let locationUpdatePromise = self.locationUpdatePromise, self.isUpdating {
             return locationUpdatePromise.stream
         }
-        self.locationUpdatePromise = StreamPromise<[CLLocation]>(capacity:capacity)
-        self.isUpdating = true
+        locationUpdatePromise = StreamPromise<[CLLocation]>(capacity:capacity)
+        isUpdating = true
         let authorizationFuture = self.authorize(authorization, context: context)
         authorizationFuture.onFailure(context: context) { _ in self.isUpdating = false }
         return authorizationFuture.flatMap(capacity: capacity, context: context) { Void -> FutureStream<[CLLocation]> in
@@ -246,19 +235,22 @@ public class LocationManager : NSObject, CLLocationManagerDelegate {
         }
     }
     public func stopUpdatingLocation() {
-        self.isUpdating = false
-        self.locationUpdatePromise = nil
-        self.clLocationManager.stopUpdatingLocation()
+        isUpdating = false
+        locationUpdatePromise = nil
+        clLocationManager.stopUpdatingLocation()
     }
 
     public func requestLocation(authorization: CLAuthorizationStatus = .authorized, context: ExecutionContext = QueueContext.main) -> Future<[CLLocation]> {
         if let requestLocationPromise = self.requestLocationPromise, !requestLocationPromise.completed {
             return requestLocationPromise.future
         }
-        self.requestLocationPromise = Promise<[CLLocation]>()
-        return self.authorize(authorization, context: context).flatMap(context: context) {
-            self.clLocationManager.requestLocation()
-            return self.requestLocationPromise!.future
+        requestLocationPromise = Promise<[CLLocation]>()
+        return authorize(authorization, context: context).flatMap(context: context) { [weak self] in
+            guard let strongSelf = self else {
+                throw LocationError.authorizationFailed
+            }
+            strongSelf.clLocationManager.requestLocation()
+            return strongSelf.requestLocationPromise!.future
         }
     }
 
@@ -271,7 +263,7 @@ public class LocationManager : NSObject, CLLocationManagerDelegate {
         if let locationUpdatePromise = self.locationUpdatePromise, self.isUpdating {
             return locationUpdatePromise.stream
         }
-        self.locationUpdatePromise = StreamPromise<[CLLocation]>(capacity: capacity)
+        locationUpdatePromise = StreamPromise<[CLLocation]>(capacity: capacity)
         let authorizationFuture = self.authorize(authorization, context: context)
         authorizationFuture.onFailure(context: context) { _ in self.isUpdating = false }
         return authorizationFuture.flatMap(capacity: capacity, context: context) { Void -> FutureStream<[CLLocation]> in

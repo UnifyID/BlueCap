@@ -23,8 +23,10 @@ let profileManager = ProfileManager()
 
 class CBCentralManagerMock: CBCentralManagerInjectable {
 
-    var connectPeripheralCalled     = false
-    var cancelPeripheralConnection  = false
+    var connectPeripheralCalled = false
+    var connectPeripheralCount = 0
+    var cancelPeripheralConnectionCalled = false
+    var cancelPeripheralConnectionCount = 0
     var scanForPeripheralsWithServicesCalled = false
 
     var state: ManagerState
@@ -40,27 +42,29 @@ class CBCentralManagerMock: CBCentralManagerInjectable {
     }
 
     func scanForPeripherals(withServices uuids: [CBUUID]?, options:[String : Any]?) {
-        self.scanForPeripheralsWithServicesCalled = true
+        scanForPeripheralsWithServicesCalled = true
     }
     
     func stopScan() {
-        self.stopScanCalled = true
+        stopScanCalled = true
     }
     
     func connect(_ peripheral: CBPeripheralInjectable, options: [String : Any]?) {
-        self.connectPeripheralCalled = true
+        connectPeripheralCalled = true
+        connectPeripheralCount += 1
     }
 
     func cancelPeripheralConnection(_ peripheral: CBPeripheralInjectable) {
-        self.cancelPeripheralConnection = true
+        cancelPeripheralConnectionCalled = true
+        cancelPeripheralConnectionCount += 1
     }
 
     func retrieveConnectedPeripherals(withServices serviceUUIDs: [CBUUID]) -> [CBPeripheralInjectable] {
-        return self.retrieveConnectedPeripherals(withServices: serviceUUIDs)
+        return retrieveConnectedPeripherals(withServices: serviceUUIDs)
     }
 
     func retrievePeripherals(withIdentifiers identifiers: [UUID]) -> [CBPeripheralInjectable] {
-        return self.retrievePeripherals(withIdentifiers: identifiers)
+        return retrievePeripherals(withIdentifiers: identifiers)
     }
 
 }
@@ -73,9 +77,6 @@ class CentralManagerUT: CentralManager {
         super.init(centralManager: centralManager, profileManager: profileManager)
     }
 
-    override func cancelPeripheralConnection(_ peripheral: Peripheral) {
-        peripheral.didDisconnectPeripheral(nil)
-    }
 }
 
 // MARK: - CBPeripheralMock -
@@ -182,19 +183,18 @@ class PeripheralUT: Peripheral {
     init(cbPeripheral: CBPeripheralInjectable, centralManager: CentralManager, advertisements: [String: AnyObject], rssi: Int, error: Error?) {
         self.error = error
         super.init(cbPeripheral: cbPeripheral, centralManager: centralManager, advertisements: advertisements, RSSI: rssi)
-    }
-    
+    }    
 }
 
 // MARK: - CBServiceMock -
 
 class CBServiceMock: CBServiceInjectable {
 
-    var UUID: CBUUID
+    var uuid: CBUUID
     var characteristics: [CBCharacteristicMock]?
 
-    init(UUID:CBUUID = CBUUID(string: Foundation.UUID().uuidString)) {
-        self.UUID = UUID
+    init(uuid: CBUUID = CBUUID(nsuuid: UUID())) {
+        self.uuid = uuid
     }
 
     func getCharacteristics() -> [CBCharacteristicInjectable]? {
@@ -208,13 +208,13 @@ class CBServiceMock: CBServiceInjectable {
 
 class CBCharacteristicMock: CBCharacteristicInjectable {
     
-    var UUID: CBUUID
+    var uuid: CBUUID
     var value: Data?
     var properties: CBCharacteristicProperties
     var isNotifying = false
 
-    init (UUID: CBUUID = CBUUID(string: Foundation.UUID().uuidString), properties: CBCharacteristicProperties = [.read, .write], isNotifying: Bool = false) {
-        self.UUID = UUID
+    init (uuid: CBUUID = CBUUID(string: Foundation.UUID().uuidString), properties: CBCharacteristicProperties = [.read, .write], isNotifying: Bool = false) {
+        self.uuid = uuid
         self.properties = properties
         self.isNotifying = isNotifying
     }
@@ -239,6 +239,7 @@ class CBPeripheralManagerMock: NSObject, CBPeripheralManagerInjectable {
 
     var advertisementData: [String : Any]?
     var isAdvertising : Bool
+    let stopAdvertiseFail: Bool
     var state: ManagerState
     var addedService: CBMutableServiceInjectable?
     var removedService: CBMutableServiceInjectable?
@@ -248,9 +249,10 @@ class CBPeripheralManagerMock: NSObject, CBPeripheralManagerInjectable {
     var addServiceCount = 0
     var updateValueCount = 0
 
-    init(isAdvertising: Bool, state: ManagerState) {
+    init(isAdvertising: Bool, state: ManagerState, stopAdvertiseFail: Bool = false) {
         self.isAdvertising = isAdvertising
         self.state = state
+        self.stopAdvertiseFail = stopAdvertiseFail
     }
 
     var managerState: ManagerState {
@@ -265,6 +267,9 @@ class CBPeripheralManagerMock: NSObject, CBPeripheralManagerInjectable {
     
     func stopAdvertising() {
         self.stopAdvertisingCalled = true
+        guard !stopAdvertiseFail else {
+            return
+        }
         self.isAdvertising = false
     }
     
@@ -308,9 +313,9 @@ class CBMutableServiceMock : CBServiceMock, CBMutableServiceInjectable {
 class CBMutableCharacteristicMock : CBCharacteristicMock, CBMutableCharacteristicInjectable {
     var permissions: CBAttributePermissions
 
-    init (UUID: CBUUID = CBUUID(string: Foundation.UUID().uuidString), properties: CBCharacteristicProperties = [.read, .write], permissions: CBAttributePermissions = [.readable, .writeable], isNotifying: Bool = false) {
+    init (uuid: CBUUID = CBUUID(string: Foundation.UUID().uuidString), properties: CBCharacteristicProperties = [.read, .write], permissions: CBAttributePermissions = [.readable, .writeable], isNotifying: Bool = false) {
         self.permissions = permissions
-        super.init(UUID: UUID, properties: properties, isNotifying: isNotifying)
+        super.init(uuid: uuid, properties: properties, isNotifying: isNotifying)
     }
 }
 
@@ -363,23 +368,40 @@ class CBCentralMock : CBCentralInjectable {
 }
 
 // MARK: - Utilities -
-func createPeripheralManager(_ isAdvertising: Bool, state: ManagerState) -> (CBPeripheralManagerMock, PeripheralManagerUT) {
-    let mock = CBPeripheralManagerMock(isAdvertising: isAdvertising, state: state)
+func createPeripheralManager(_ isAdvertising: Bool, state: ManagerState, stopAdvertiseFail: Bool = false) -> (CBPeripheralManagerMock, PeripheralManagerUT) {
+    let mock = CBPeripheralManagerMock(isAdvertising: isAdvertising, state: state, stopAdvertiseFail: stopAdvertiseFail)
     return (mock, PeripheralManagerUT(peripheralManager:mock))
 }
 
 func createPeripheralManagerService(_ peripheralManager: PeripheralManager) -> MutableService {
-    let helloWoroldService = profileManager.services[CBUUID(string: Gnosus.HelloWorldService.UUID)]!
-    let service = MutableService(cbMutableService: CBMutableServiceMock(UUID: CBUUID(string: Gnosus.HelloWorldService.UUID)), profile: helloWoroldService)
+    let helloWoroldService = profileManager.services[CBUUID(string: Gnosus.HelloWorldService.uuid)]!
+    let mockService = CBMutableServiceMock(uuid: CBUUID(string: Gnosus.HelloWorldService.uuid))
+    let service = MutableService(cbMutableService: mockService, profile: helloWoroldService)
     service.peripheralManager = peripheralManager
+    peripheralManager.configuredServices = [service.uuid: [service]]
     return service
+}
+
+func createPeripheralManagerService() -> MutableService {
+    let helloWoroldService = profileManager.services[CBUUID(string: Gnosus.HelloWorldService.uuid)]!
+    let mockService = CBMutableServiceMock(uuid: CBUUID(string: Gnosus.HelloWorldService.uuid))
+    let service = MutableService(cbMutableService: mockService, profile: helloWoroldService)
+    return service
+}
+
+func createDuplicatePeripheralManagerServices() -> [MutableService] {
+    let helloWoroldService = profileManager.services[CBUUID(string: Gnosus.HelloWorldService.uuid)]!
+    let mockService1 = CBMutableServiceMock(uuid: CBUUID(string: Gnosus.HelloWorldService.uuid))
+    let mockService2 = CBMutableServiceMock(uuid: CBUUID(string: Gnosus.HelloWorldService.uuid))
+    let services = [MutableService(cbMutableService: mockService1, profile: helloWoroldService),
+                    MutableService(cbMutableService: mockService2, profile: helloWoroldService)]
+    return services
 }
 
 func createPeripheralManagerCharacteristic(_ service: MutableService) -> MutableCharacteristic {
     service.characteristics = service.profile.characteristics.map { profile in
-        let characteristic = CBMutableCharacteristicMock(UUID:profile.UUID, properties: profile.properties, permissions: profile.permissions, isNotifying: false)
+        let characteristic = CBMutableCharacteristicMock(uuid: profile.uuid, properties: profile.properties, permissions: profile.permissions, isNotifying: false)
         return MutableCharacteristic(cbMutableCharacteristic: characteristic, profile: profile)
     }
     return service.characteristics[0]
 }
-

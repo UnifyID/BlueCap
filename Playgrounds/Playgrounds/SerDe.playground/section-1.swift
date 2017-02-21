@@ -17,11 +17,16 @@ if let value: UInt8 = SerDe.deserialize(data1) {
     print("\(value)")
 }
 
+let data = SerDe.serialize(UInt8(31))
+if let value : UInt8 = SerDe.deserialize(data) {
+    print("\(value)")
+}
+
 // RawDeserializable Protocol
 enum Enabled : UInt8, RawDeserializable {
     case No  = 0
     case Yes = 1
-    static let UUID = "F000AA12-0451-4000-B000-000000000000"
+    static let uuid = "F000AA12-0451-4000-B000-000000000000"
 }
 
 let data2 = SerDe.serialize(Enabled.Yes)
@@ -32,9 +37,9 @@ if let value : Enabled = SerDe.deserialize(data2) {
 struct RawValue : RawDeserializable {
     
     let rawValue: UInt8
-    static let UUID = "F000AA13-0451-4000-B000-000000000000"
+    static let uuid = "F000AA13-0451-4000-B000-000000000000"
 
-    init?(rawValue:UInt8) {
+    init?(rawValue: UInt8) {
         self.rawValue = rawValue
     }
 }
@@ -50,7 +55,7 @@ if let initValue = RawValue(rawValue:10) {
 struct RawArrayValue : RawArrayDeserializable {
     
     let rawValue: [UInt8]
-    static let UUID: String = "F000AA13-0451-4000-B000-000000000000"
+    static let uuid: String = "F000AA13-0451-4000-B000-000000000000"
     
     static let size = 2
     
@@ -75,7 +80,7 @@ struct RawPairValue : RawPairDeserializable {
     
     let rawValue1: UInt8
     let rawValue2: Int8
-    static let UUID: String = "F000AA13-0451-4000-B000-000000000000"
+    static let uuid: String = "F000AA13-0451-4000-B000-000000000000"
     
     
     init?(rawValue1:UInt8, rawValue2:Int8) {
@@ -97,7 +102,7 @@ struct RawArrayPairValue : RawArrayPairDeserializable {
     
     let rawValue1: [UInt8]
     let rawValue2: [Int8]
-    static let UUID = "F000AA13-0451-4000-B000-000000000000"
+    static let uuid = "F000AA13-0451-4000-B000-000000000000"
     static let size1 = 2
     static let size2 = 2
     
@@ -119,5 +124,3 @@ if let initValue = RawArrayPairValue(rawValue1:[10, 100], rawValue2:[-10, -100])
         print("\(value.rawValue2)")
     }
 }
-
-let manager = ProfileManager.sharedInstance

@@ -1,4 +1,4 @@
-//
+                 //
 //  CharacteristicProfile.swift
 //  BlueCap
 //
@@ -12,36 +12,30 @@ import CoreBluetooth
 // MARK:  - CharacteristicProfile -
 public class CharacteristicProfile {
     
-    public let UUID: CBUUID
+    public let uuid: CBUUID
     public let name: String
     public let permissions: CBAttributePermissions
     public let properties: CBCharacteristicProperties
     public let initialValue: Data?
 
-    internal let afterDiscoveredPromise = StreamPromise<Characteristic>(capacity: 1)
-
     public var stringValues: [String] {
         return []
     }
     
-    public init(UUID: String,
+    public init(uuid: String,
                 name: String,
-                permissions: CBAttributePermissions = [CBAttributePermissions.readable, CBAttributePermissions.writeable],
-                properties: CBCharacteristicProperties = [CBCharacteristicProperties.read, CBCharacteristicProperties.write, CBCharacteristicProperties.notify],
+                permissions: CBAttributePermissions = [.readable, .writeable],
+                properties: CBCharacteristicProperties = [.read, .write, .notify],
                 initialValue: Data? = nil) {
-        self.UUID = CBUUID(string: UUID)
+        self.uuid = CBUUID(string: uuid)
         self.name = name
         self.permissions = permissions
         self.properties = properties
         self.initialValue = initialValue
     }
     
-    public convenience init(UUID: String) {
-        self.init(UUID: UUID, name: "Unknown")
-    }
-    
-    public func afterDiscovered() -> FutureStream<Characteristic> {
-        return afterDiscoveredPromise.stream
+    public convenience init(uuid: String) {
+        self.init(uuid: uuid, name: "Unknown")
     }
 
     public func propertyEnabled(_ property: CBCharacteristicProperties) -> Bool {
@@ -66,7 +60,7 @@ public class CharacteristicProfile {
 public final class RawCharacteristicProfile<DeserializedType>: CharacteristicProfile where DeserializedType: RawDeserializable, DeserializedType: StringDeserializable,  DeserializedType: CharacteristicConfigurable, DeserializedType.RawType: Deserializable {
     
     public init() {
-        super.init(UUID: DeserializedType.UUID,
+        super.init(uuid: DeserializedType.uuid,
             name: DeserializedType.name,
             permissions: DeserializedType.permissions,
             properties: DeserializedType.properties,
@@ -79,7 +73,8 @@ public final class RawCharacteristicProfile<DeserializedType>: CharacteristicPro
     
     public override func stringValue(_ data: Data) -> [String:String]? {
         let value: DeserializedType? = SerDe.deserialize(data)
-        return value.map{$0.stringValue}
+        Logger.debug("\(value)")
+        return value.map { $0.stringValue }
     }
     
     public override func data(fromString data: [String: String]) -> Data? {
@@ -96,7 +91,7 @@ public final class RawArrayCharacteristicProfile<DeserializedType>: Characterist
                                                  DeserializedType.RawType: Deserializable {
     
     public init() {
-        super.init(UUID: DeserializedType.UUID,
+        super.init(uuid: DeserializedType.uuid,
                    name: DeserializedType.name,
                    permissions: DeserializedType.permissions,
                    properties: DeserializedType.properties,
@@ -122,7 +117,7 @@ public final class RawArrayCharacteristicProfile<DeserializedType>: Characterist
 public final class RawPairCharacteristicProfile<DeserializedType>: CharacteristicProfile where DeserializedType: RawPairDeserializable, DeserializedType: StringDeserializable, DeserializedType: CharacteristicConfigurable, DeserializedType.RawType1: Deserializable, DeserializedType.RawType2: Deserializable {
     
     public init() {
-        super.init(UUID:  DeserializedType.UUID,
+        super.init(uuid:  DeserializedType.uuid,
             name: DeserializedType.name,
             permissions: DeserializedType.permissions,
             properties: DeserializedType.properties,
@@ -149,7 +144,7 @@ public final class RawPairCharacteristicProfile<DeserializedType>: Characteristi
 public final class RawArrayPairCharacteristicProfile<DeserializedType>: CharacteristicProfile where DeserializedType: RawArrayPairDeserializable, DeserializedType: StringDeserializable, DeserializedType: CharacteristicConfigurable, DeserializedType.RawType1: Deserializable, DeserializedType.RawType2: Deserializable {
     
     public init() {
-        super.init(UUID: DeserializedType.UUID,
+        super.init(uuid: DeserializedType.uuid,
             name: DeserializedType.name,
             permissions: DeserializedType.permissions,
             properties: DeserializedType.properties,
@@ -177,17 +172,17 @@ public final class StringCharacteristicProfile<T: CharacteristicConfigurable>: C
     public var encoding : String.Encoding
     
     public convenience init(encoding: String.Encoding = String.Encoding.utf8) {
-        self.init(UUID: T.UUID, name: T.name, permissions: T.permissions, properties: T.properties, initialValue: T.initialValue as Data?, encoding: encoding)
+        self.init(uuid: T.uuid, name: T.name, permissions: T.permissions, properties: T.properties, initialValue: T.initialValue as Data?, encoding: encoding)
     }
     
-    public init(UUID: String,
+    public init(uuid: String,
                 name: String,
                 permissions: CBAttributePermissions = [CBAttributePermissions.readable, CBAttributePermissions.writeable],
                 properties:CBCharacteristicProperties = [CBCharacteristicProperties.read, CBCharacteristicProperties.write, CBCharacteristicProperties.notify],
                 initialValue:Data? = nil,
                 encoding:String.Encoding = String.Encoding.utf8) {
         self.encoding = encoding
-        super.init(UUID: UUID, name: name, permissions: permissions, properties: properties)
+        super.init(uuid: uuid, name: name, permissions: permissions, properties: properties)
     }
     
     public override func stringValue(_ data: Data) -> [String: String]? {
