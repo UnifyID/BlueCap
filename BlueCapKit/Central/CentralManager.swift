@@ -80,7 +80,7 @@ public class CentralManager : NSObject, CBCentralManagerDelegate {
         self.centralQueue = Queue(queue)
         self.profileManager = profileManager
         self.options = options
-        self.name = (options?[CBCentralManagerOptionRestoreIdentifierKey] as? String) ?? "unknown"
+        self.name = "unknown"
         super.init()
         self.cbCentralManager = CBCentralManager(delegate: self, queue: self.centralQueue.queue, options: options)
     }

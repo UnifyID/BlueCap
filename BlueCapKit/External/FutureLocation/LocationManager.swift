@@ -132,41 +132,46 @@ public class LocationManager : NSObject, CLLocationManagerDelegate {
 
     public func authorize(_ authorization: CLAuthorizationStatus, context: ExecutionContext = QueueContext.main) -> Future<Void> {
         let currentAuthorization = self.authorizationStatus()
-        if currentAuthorization != authorization && currentAuthorization != .authorizedAlways {
-            if let authorizationFuture = self.authorizationFuture, !authorizationFuture.completed {
-                return authorizationFuture
-            }
-            authorizationStatusChangedPromise = Promise<CLAuthorizationStatus>()
-            switch authorization {
-            case .authorizedAlways:
-                requestAlwaysAuthorization()
-            case .authorizedWhenInUse:
-                requestWhenInUseAuthorization()
-            default:
-                Logger.debug("requested location authorization invalid")
-                return Future(error: LocationError.authroizationInvalid)
-            }
-            authorizationFuture = self.authorizationStatusChangedPromise!.future.map(context: context) { status in
+        if #available(OSX 10.12, *) {
+            if currentAuthorization != authorization && currentAuthorization != .authorizedAlways {
+                if let authorizationFuture = self.authorizationFuture, !authorizationFuture.completed {
+                    return authorizationFuture
+                }
+                authorizationStatusChangedPromise = Promise<CLAuthorizationStatus>()
                 switch authorization {
                 case .authorizedAlways:
-                    if #available(OSX 10.12, *) {
-                        if status == .authorizedAlways {
-                            Logger.debug("location AuthorizedAlways succcess")
-                            return
-                        } else {
-                            Logger.debug("location AuthorizedAlways failed")
-                            throw LocationError.authorizationAlwaysFailed
-                        }
-                    } else {
-                        // Fallback on earlier versions
-                    }
+                    requestAlwaysAuthorization()
+                case .authorizedWhenInUse:
+                    requestWhenInUseAuthorization()
                 default:
-                    throw LocationError.authroizationInvalid
+                    Logger.debug("requested location authorization invalid")
+                    return Future(error: LocationError.authroizationInvalid)
                 }
+                authorizationFuture = self.authorizationStatusChangedPromise!.future.map(context: context) { status in
+                    switch authorization {
+                    case .authorizedAlways:
+                        if #available(OSX 10.12, *) {
+                            if status == .authorizedAlways {
+                                Logger.debug("location AuthorizedAlways succcess")
+                                return
+                            } else {
+                                Logger.debug("location AuthorizedAlways failed")
+                                throw LocationError.authorizationAlwaysFailed
+                            }
+                        } else {
+                            // Fallback on earlier versions
+                        }
+                    default:
+                        throw LocationError.authroizationInvalid
+                    }
+                }
+                return authorizationFuture!
+            } else {
+                Logger.debug("requested authoriztation given: \(currentAuthorization)")
+                return Future(value: ())
             }
-            return authorizationFuture!
         } else {
-            Logger.debug("requested authoriztation given: \(currentAuthorization)")
+            // Fallback on earlier versions
             return Future(value: ())
         }
     }
