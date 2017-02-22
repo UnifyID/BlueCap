@@ -34,6 +34,10 @@ public extension CBPeripheralState {
 public struct PeripheralAdvertisements {
     
     let advertisements: [String : Any]
+
+    public init(advertisements: [String : Any]) {
+        self.advertisements = advertisements
+    }
     
     public var localName: String? {
         return self.advertisements[CBAdvertisementDataLocalNameKey] as? String
